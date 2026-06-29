@@ -11,7 +11,6 @@ flat shape the renderer reads.
 """
 import base64
 import hashlib
-import io
 import json
 import os
 import traceback
@@ -185,12 +184,19 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "name": name})
 
         if path == "/api/xlsx-template":
-            buf = io.BytesIO()
             import openpyxl
+            name = _safe_name(data.get("name"))
             wb = openpyxl.Workbook(); ws = wb.active; ws.title = "fill"
             ws.append(batch.fillable_columns(data.get("fields", [])))
-            wb.save(buf)
-            return self._json({"ok": True, "xlsx_b64": base64.b64encode(buf.getvalue()).decode()})
+            out = os.path.join(ROOT, name + "_fill.xlsx")
+            wb.save(out)
+            try:                                  # reveal the folder (desktop app)
+                if hasattr(os, "startfile"):
+                    os.startfile(ROOT)
+            except Exception:
+                pass
+            return self._json({"ok": True, "file": name + "_fill.xlsx",
+                               "folder": os.path.abspath(ROOT)})
 
         if path == "/api/generate":
             try:

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Packaged app
+*.exe
+
+# Your data (not part of the tool)
+base.jpeg
+ex1.jpeg
+fields.json
+bases/
+templates/
+output/
+out/
+
+# Fonts: add your own (licensing varies)
+fonts/*
+!fonts/.gitkeep
+
+# Local tooling / secrets (never publish)
+.adrflow/
+.codegraphcontext/
+.env
+*.env
+

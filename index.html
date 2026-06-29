@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Form Template Editor</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Segoe UI, system-ui, sans-serif; display: flex; height: 100vh; color: #1a1a2e; }
+  #sidebar { width: 350px; flex: 0 0 350px; background: #f5f6fa; border-right: 1px solid #d9dbe3;
+             display: flex; flex-direction: column; overflow: hidden; }
+  #stage { flex: 1; overflow: auto; background: #34384a; display: flex; justify-content: center; }
+  #cv { cursor: crosshair; align-self: flex-start; margin: 16px; box-shadow: 0 4px 20px rgba(0,0,0,.4); background:#fff; }
+  h2 { font-size: 15px; margin: 0; padding: 12px 14px; background: #1f2233; color: #fff; }
+  .pad { padding: 10px 14px; border-bottom: 1px solid #e2e4ec; }
+  .row { display: flex; gap: 6px; align-items: center; margin: 5px 0; }
+  label { font-size: 12px; color: #555; }
+  button { cursor: pointer; border: 1px solid #c2c5d2; background: #fff; border-radius: 5px; padding: 6px 9px; font-size: 12px; }
+  button.active { background: #3a46d6; color: #fff; border-color: #3a46d6; }
+  button.primary { background: #2bb673; color: #fff; border-color: #2bb673; font-weight: 600; }
+  button.arm { background: #ff8c00; color: #fff; border-color: #ff8c00; }
+  input[type=text] { padding: 5px 6px; border: 1px solid #c2c5d2; border-radius: 5px; font-size: 12px; flex: 1; min-width: 0; }
+  select { padding: 5px; border: 1px solid #c2c5d2; border-radius: 5px; font-size: 12px; }
+  #fields { flex: 1; overflow-y: auto; padding: 4px 8px; }
+  .fld { border: 1px solid #e0e2ec; border-radius: 6px; padding: 7px; margin: 6px 0; background: #fff; }
+  .fld.sel { border-color: #3a46d6; box-shadow: 0 0 0 2px #3a46d633; }
+  .fld .top { display: flex; gap: 6px; align-items: center; }
+  .tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #eceefb; color: #3a46d6; }
+  .tag.date { background: #fff0db; color: #b06a00; }
+  .fld .del { margin-left: auto; color: #c00; border-color: #f0c0c0; padding: 3px 7px; }
+  .part { display: flex; gap: 5px; align-items: center; margin: 4px 0 0; }
+  .part label { width: 42px; }
+  .part .set { font-size: 14px; }
+  .hint { font-size: 11px; color: #777; padding: 4px 14px; line-height: 1.4; }
+  #result { width: 100%; border: 1px solid #ccc; border-radius: 6px; margin-top: 8px; cursor: zoom-in; display:none; }
+  .seg button { border-radius: 0; }
+  .seg button:first-child { border-radius: 5px 0 0 5px; }
+  .seg button:last-child { border-radius: 0 5px 5px 0; }
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <h2>Form Template Editor</h2>
+
+  <div class="pad">
+    <label>Mode</label>
+    <div class="row seg" id="modeSeg">
+      <button data-mode="define" class="active">Define boxes</button>
+      <button data-mode="fill">Fill values</button>
+    </div>
+    <div class="row" id="typeRow">
+      <label>New box type</label>
+      <select id="typeSel">
+        <option value="text">Text (Arabic / English)</option>
+        <option value="date">Date (day / month / year)</option>
+        <option value="choice">Multiple choice (mark one)</option>
+        <option value="digits">Number cells (one digit per box)</option>
+      </select>
+    </div>
+    <div class="hint" id="hint">Drag a rectangle on the form to add a box.</div>
+  </div>
+
+  <div class="pad" style="background:#eef0f8">
+    <div class="row"><label style="width:62px">Base img</label>
+      <input type="file" id="baseFile" accept="image/*" style="font-size:11px;flex:1"></div>
+    <div class="row"><label style="width:62px">Template</label>
+      <input type="text" id="tplName" placeholder="name" style="flex:1">
+      <button id="tplSave">Save</button></div>
+    <div class="row"><label style="width:62px">Open</label>
+      <select id="tplList" style="flex:1"><option value="">saved templates</option></select></div>
+    <div class="row"><button id="xlsxDl" title="download a blank sheet to fill">Download XLSX</button>
+      <input type="file" id="xlsxFile" accept=".xlsx" style="font-size:11px;flex:1"></div>
+    <div class="row"><button class="primary" id="genBtn" style="flex:1">Generate from XLSX</button></div>
+    <div class="hint" id="batchStatus" style="padding:0"></div>
+  </div>
+
+  <div id="fields"></div>
+
+  <div class="pad">
+    <div class="row">
+      <button class="primary" id="renderBtn">Render</button>
+      <button id="saveBtn">Save</button>
+    </div>
+    <div class="row"><label id="status" style="color:#2bb673"></label></div>
+    <img id="result" title="click to open full size">
+  </div>
+</div>
+
+<div id="stage"><canvas id="cv"></canvas></div>
+
+<script>
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const img = new Image();
+let SCALE = 1, fields = [], sel = -1, mode = 'define', drag = null;
+let placing = null;   // {fi, key} while placing a date part
+const DATE_PARTS = ['day','month','year'];
+const META = { base_image:"base.jpeg", out_image:"out/filled.png",
+  font:"fonts/PlaypenSansArabic.ttf", ink:[15,20,70], default_size:22 };
+
+img.onload = () => {
+  SCALE = Math.min(760 / img.naturalWidth, 1);
+  cv.width = Math.round(img.naturalWidth * SCALE);
+  cv.height = Math.round(img.naturalHeight * SCALE);
+  draw();
+};
+function loadBase(){ img.src = META.base_image + '?' + Date.now(); }
+
+function applyTemplate(t){
+  if (t.meta) Object.assign(META, t.meta);
+  fields = (t.fields || []);
+  fields.forEach(f => { if ((f.type||'text')==='date' && !f.parts) f.parts={}; });
+  loadBase(); renderList(); draw();
+}
+let FONTS = [];
+function refreshFonts(){ return fetch('api/fonts').then(r=>r.json()).then(d=>{ FONTS=d.fonts||[]; renderList(); }).catch(()=>{}); }
+function fontName(path){ const f=FONTS.find(x=>x.path===path); return f?f.label:(path?path.split('/').pop():'default'); }
+function fontOptions(f){
+  const cur=f.font||'';
+  let html=`<option value="">font: default ${cur?'':'(in use)'}</option>`, seen=false;
+  FONTS.forEach(ft=>{ const sel=ft.path===cur; if(sel)seen=true;
+    html+=`<option value="${ft.path}" ${sel?'selected':''}>font: ${ft.label}</option>`; });
+  if(cur && !seen) html+=`<option value="${cur}" selected>font: ${cur.split('/').pop()}</option>`;
+  return html;
+}
+
+fetch('api/template?t='+Date.now()).then(r => r.json()).then(applyTemplate).catch(()=>loadBase());
+refreshTemplates();
+refreshFonts();
+
+function s(v){ return v * SCALE; }
+function isArabic(t){ return /[؀-ۿﭐ-﻿]/.test((t||'').replace(/[٠-٩۰-۹]/g,'')); }
+function typeOf(f){ return f.type||'text'; }
+function rgbHex(a){ return '#'+a.map(v=>(+v).toString(16).padStart(2,'0')).join(''); }
+function fldColor(f){ return f.color || rgbHex(META.ink); }
+
+function draw(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  if (img.complete) ctx.drawImage(img,0,0,cv.width,cv.height);
+  fields.forEach((f,i)=>{
+    const on=i===sel;
+    if (typeOf(f)==='date'){
+      if (f.box){ ctx.setLineDash([5,3]); ctx.lineWidth=on?2:1.2;
+        ctx.strokeStyle=on?'#b06a00':'rgba(176,106,0,.6)';
+        const[x0,y0,x1,y1]=f.box; ctx.strokeRect(s(x0),s(y0),s(x1-x0),s(y1-y0)); ctx.setLineDash([]); }
+      DATE_PARTS.forEach(k=>{ const p=f.parts&&f.parts[k]; if(!p||!p.box)return;
+        const[x0,y0,x1,y1]=p.box; ctx.lineWidth=1.5; ctx.strokeStyle='#ff8c00';
+        ctx.strokeRect(s(x0),s(y0),s(x1-x0),s(y1-y0));
+        ctx.fillStyle='#ff8c00'; ctx.font='10px Segoe UI'; ctx.fillText(k,s(x0),s(y0)-2); });
+      const lb=f.box||(f.parts&&f.parts.day&&f.parts.day.box);
+      if(lb){ctx.fillStyle=on?'#b06a00':'rgba(176,106,0,.85)';ctx.font='11px Segoe UI';ctx.fillText(f.name,s(lb[0]),s(lb[1])-3);}
+    } else if (typeOf(f)==='choice'){
+      (f.options||[]).forEach(o=>{ if(!o.box)return; const[x0,y0,x1,y1]=o.box;
+        const isSel=o.key===f.selected; ctx.lineWidth=1.5; ctx.strokeStyle=isSel?'#d62b8a':'#ff8c00';
+        ctx.strokeRect(s(x0),s(y0),s(x1-x0),s(y1-y0));
+        ctx.fillStyle=isSel?'#d62b8a':'#ff8c00'; ctx.font='10px Segoe UI';
+        ctx.fillText(o.key+(isSel?'':''),s(x0),s(y0)-2); });
+      const lb=f.box||((f.options||[]).find(o=>o.box)||{}).box;
+      if(lb){ctx.fillStyle=on?'#d62b8a':'rgba(214,43,138,.85)';ctx.font='11px Segoe UI';ctx.fillText(f.name,s(lb[0]),s(lb[1])-3);}
+    } else if (typeOf(f)==='digits'){
+      const[x0,y0,x1,y1]=f.box; ctx.lineWidth=on?2:1.2;
+      ctx.strokeStyle=on?'#3a46d6':'rgba(58,70,214,.7)';
+      ctx.strokeRect(s(x0),s(y0),s(x1-x0),s(y1-y0));
+      const n=f.count||1, cw=(x1-x0)/n;
+      ctx.strokeStyle='rgba(58,70,214,.35)';
+      for(let c=1;c<n;c++){ctx.beginPath();ctx.moveTo(s(x0+cw*c),s(y0));ctx.lineTo(s(x0+cw*c),s(y1));ctx.stroke();}
+      ctx.fillStyle=on?'#3a46d6':'rgba(58,70,214,.85)';ctx.font='11px Segoe UI';ctx.fillText(f.name,s(x0),s(y0)-3);
+    } else {
+      const[x0,y0,x1,y1]=f.box; ctx.lineWidth=on?2:1.2;
+      ctx.strokeStyle=on?'#3a46d6':'rgba(58,70,214,.7)';
+      ctx.strokeRect(s(x0),s(y0),s(x1-x0),s(y1-y0));
+      ctx.fillStyle=on?'#3a46d6':'rgba(58,70,214,.85)';ctx.font='11px Segoe UI';ctx.fillText(f.name,s(x0),s(y0)-3);
+    }
+  });
+  if (drag){ ctx.strokeStyle=placing?'#ff8c00':'#2bb673'; ctx.setLineDash([5,3]); ctx.lineWidth=1.5;
+    ctx.strokeRect(s(drag.x0),s(drag.y0),s(drag.x1-drag.x0),s(drag.y1-drag.y0)); ctx.setLineDash([]); }
+}
+function toImg(e){ const r=cv.getBoundingClientRect(); return [(e.clientX-r.left)/SCALE,(e.clientY-r.top)/SCALE]; }
+function rectFrom(d){ return [Math.round(Math.min(d.x0,d.x1)),Math.round(Math.min(d.y0,d.y1)),
+  Math.round(Math.max(d.x0,d.x1)),Math.round(Math.max(d.y0,d.y1))]; }
+
+cv.addEventListener('mousedown', e=>{
+  const [x,y]=toImg(e);
+  if (mode!=='define'){ pickAt(x,y); return; }
+  drag={x0:x,y0:y,x1:x,y1:y};
+});
+cv.addEventListener('mousemove', e=>{ if(!drag)return; const[x,y]=toImg(e); drag.x1=x; drag.y1=y; draw(); });
+window.addEventListener('keydown', e=>{ if(e.key==='Escape' && placing){ placing=null; setHint(); renderList(); draw(); } });
+window.addEventListener('mouseup', ()=>{
+  if(!drag) return;
+  const box=rectFrom(drag); drag=null;
+  const tiny = box[2]-box[0]<=4 || box[3]-box[1]<=4;
+  if(placing){                                  // placing a date part or a choice mark box
+    // a plain click drops a default-size box at the point; a drag uses its size
+    const b = tiny ? [box[0]-14, box[1]-10, box[0]+14, box[1]+10] : box;
+    const f=fields[placing.fi];
+    if(placing.opt!=null){ f.options[placing.opt].box=b; }
+    else { f.parts=f.parts||{}; f.parts[placing.key]=Object.assign(f.parts[placing.key]||{value:''}, {box:b}); }
+    placing=null; setHint(); renderList(); draw(); return;
+  }
+  if(tiny){ draw(); return; }   // ignore stray clicks when creating a new box
+  const t=document.getElementById('typeSel').value;
+  const base=(t==='text'?'box':t); let i=1; while(fields.some(f=>f.name===base+i)) i++;
+  if(t==='date') fields.push({name:base+i, type:'date', box, size:20, align:'center',
+      parts:{day:{value:''},month:{value:''},year:{value:''}}});
+  else if(t==='choice') fields.push({name:base+i, type:'choice', box, mark:'x',
+      selected:null, options:[{key:'opt1'},{key:'opt2'}]});
+  else if(t==='digits') fields.push({name:base+i, type:'digits', box, count:10, value:''});
+  else fields.push({name:base+i, box, value:''});
+  sel=fields.length-1; renderList(); draw();
+});
+
+function renderList(){
+  const wrap=document.getElementById('fields'); wrap.innerHTML='';
+  fields.forEach((f,i)=>{
+    const d=document.createElement('div'); d.className='fld'+(i===sel?' sel':'');
+    const isDate=typeOf(f)==='date', isChoice=typeOf(f)==='choice', isDigits=typeOf(f)==='digits';
+    let html=`<div class="top"><input type="text" value="${f.name}" data-k="name">
+        <input type="color" value="${fldColor(f)}" data-k="color" title="color for this box" style="width:30px;height:26px;padding:0;border:1px solid #c2c5d2;border-radius:4px;flex:none;background:none">
+        <span class="tag ${isDate||isChoice||isDigits?'date':''}">${typeOf(f)}</span>
+        <button class="del">x</button></div>`;
+    if(isDate){
+      DATE_PARTS.forEach(k=>{ const p=(f.parts&&f.parts[k])||{value:''}; const placed=p.box?'set':'-';
+        html+=`<div class="part"><label>${k}</label>
+          <input type="text" value="${(p.value||'').replace(/"/g,'&quot;')}" data-part="${k}" placeholder="">
+          ${mode==='define'?`<button class="placeBtn ${placing&&placing.fi===i&&placing.key===k?'arm':''}" data-place="${k}">place</button>`:''}
+          <span class="set">${placed}</span></div>`; });
+    } else if(isChoice){
+      html+=`<div class="row"><label>mark</label><select data-mark style="flex:1">
+        ${['x','check','circle','dot'].map(m=>`<option value="${m}" ${f.mark===m?'selected':''}>${m}</option>`).join('')}
+        </select></div>`;
+      (f.options||[]).forEach((o,oi)=>{ const placed=o.box?'set':'-';
+        html+=`<div class="part">
+          <input type="radio" name="sel${i}" data-selopt="${oi}" ${f.selected===o.key?'checked':''} title="mark this one">
+          <input type="text" value="${(o.key||'').replace(/"/g,'&quot;')}" data-optkey="${oi}" placeholder="option" style="flex:1">
+          ${mode==='define'?`<button class="placeBtn ${placing&&placing.fi===i&&placing.opt===oi?'arm':''}" data-placeopt="${oi}">place</button>`:''}
+          <span class="set">${placed}</span>
+          ${mode==='define'?`<button data-rmopt="${oi}" class="del" style="padding:2px 7px;margin:0">-</button>`:''}</div>`; });
+      if(mode==='define') html+=`<div class="row"><button data-addopt style="font-size:11px">+ add option</button></div>`;
+    } else if(isDigits){
+      html+=`<div class="row"><input type="text" value="${(f.value||'').replace(/"/g,'&quot;')}" data-k="value" placeholder="digits" dir="ltr"></div>
+        <div class="row"><label>cells</label><input type="text" value="${f.count||''}" data-k="count" style="width:60px;flex:none"></div>`;
+    } else {
+      html+=`<div class="row"><input type="text" value="${(f.value||'').replace(/"/g,'&quot;')}" data-k="value" placeholder="value (عربي / English)"></div>`;
+    }
+    if(!isChoice) html += `<div class="row"><select class="fontSel" title="font for this box" style="flex:1;font-size:11px">${fontOptions(f)}</select></div>`;
+    d.innerHTML=html;
+    d.addEventListener('click',ev=>{ if(['INPUT','BUTTON','SELECT','OPTION','TEXTAREA','LABEL'].includes(ev.target.tagName))return; sel=i; renderList(); draw(); });
+    d.querySelector('.del').onclick=ev=>{ev.stopPropagation(); fields.splice(i,1); if(sel>=i)sel--; placing=null; renderList(); draw();};
+    d.querySelectorAll('input[data-k]').forEach(inp=>{
+      if(inp.dataset.k==='value' && typeOf(f)!=='digits') inp.dir=isArabic(inp.value)?'rtl':'ltr';
+      inp.oninput=()=>{ const k=inp.dataset.k;
+        f[k] = (k==='count') ? (parseInt(inp.value)||0) : inp.value;
+        if(k==='value' && typeOf(f)!=='digits') inp.dir=isArabic(inp.value)?'rtl':'ltr';
+        if(k==='name'||k==='count') draw(); };
+    });
+    d.querySelectorAll('select.fontSel').forEach(sel=> sel.onchange=()=>{ if(sel.value) f.font=sel.value; else delete f.font; });
+    d.querySelectorAll('input[data-part]').forEach(inp=>{ const k=inp.dataset.part;
+      inp.dir=isArabic(inp.value)?'rtl':'ltr';
+      inp.oninput=()=>{ f.parts=f.parts||{}; f.parts[k]=Object.assign(f.parts[k]||{},{value:inp.value});
+        inp.dir=isArabic(inp.value)?'rtl':'ltr'; }; });
+    d.querySelectorAll('.placeBtn[data-place]').forEach(btn=> btn.onclick=ev=>{ev.stopPropagation();
+      placing={fi:i, key:btn.dataset.place}; sel=i; setHint(); renderList(); });
+    // ---- choice handlers ----
+    const ms=d.querySelector('select[data-mark]'); if(ms) ms.onchange=()=>{ f.mark=ms.value; };
+    d.querySelectorAll('input[data-selopt]').forEach(r=> r.onchange=()=>{ f.selected=f.options[+r.dataset.selopt].key; draw(); });
+    d.querySelectorAll('input[data-optkey]').forEach(inp=>{ const oi=+inp.dataset.optkey;
+      inp.oninput=()=>{ const wasSel=f.selected===f.options[oi].key; f.options[oi].key=inp.value;
+        if(wasSel) f.selected=inp.value; draw(); }; });
+    d.querySelectorAll('.placeBtn[data-placeopt]').forEach(btn=> btn.onclick=ev=>{ev.stopPropagation();
+      placing={fi:i, opt:+btn.dataset.placeopt}; sel=i; setHint(); renderList(); });
+    d.querySelectorAll('button[data-rmopt]').forEach(btn=> btn.onclick=ev=>{ev.stopPropagation();
+      f.options.splice(+btn.dataset.rmopt,1); renderList(); draw(); });
+    const ao=d.querySelector('button[data-addopt]'); if(ao) ao.onclick=ev=>{ev.stopPropagation();
+      let n=f.options.length+1; while(f.options.some(o=>o.key==='opt'+n)) n++;
+      f.options.push({key:'opt'+n}); renderList(); };
+    wrap.appendChild(d);
+  });
+}
+function pickAt(x,y){ for(let i=fields.length-1;i>=0;i--){const f=fields[i];
+  let bb=f.box;
+  if(!bb && f.parts){for(const k of DATE_PARTS){if(f.parts[k]&&f.parts[k].box){bb=f.parts[k].box;break;}}}
+  if(!bb && f.options){for(const o of f.options){if(o.box){bb=o.box;break;}}}
+  if(bb && x>=bb[0]-4&&x<=bb[2]+4&&y>=bb[1]-4&&y<=bb[3]+4){sel=i;renderList();draw();
+    const el=document.querySelectorAll('.fld')[i]; if(el)el.scrollIntoView({block:'nearest'});return;}}}
+
+function setHint(){ const h=document.getElementById('hint');
+  if(placing){ const f=fields[placing.fi];
+    const what = placing.opt!=null ? ('mark for “'+f.options[placing.opt].key+'”') : placing.key;
+    h.innerHTML='<b style="color:#b06a00">Click (or drag) on the form to place <u>'+what+'</u> ('+f.name+') - Esc to cancel</b>'; }
+  else if(mode==='define') h.textContent='Drag a rectangle on the form to add a box.';
+  else h.textContent='Click a box on the form to jump to it; set values, then Render.'; }
+
+document.getElementById('modeSeg').onclick=e=>{ if(!e.target.dataset.mode)return;
+  mode=e.target.dataset.mode; placing=null;
+  [...e.currentTarget.children].forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
+  document.getElementById('typeRow').style.display = mode==='define'?'flex':'none';
+  cv.style.cursor = mode==='define'?'crosshair':'pointer';
+  setHint(); renderList();
+};
+
+function payload(){ return {meta:META, fields}; }
+function setStatus(m,c){ const s=document.getElementById('status'); s.textContent=m; s.style.color=c||'#2bb673'; }
+document.getElementById('saveBtn').onclick=()=>{
+  fetch('api/template',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())})
+    .then(r=>r.json()).then(()=>setStatus('Saved')).catch(()=>setStatus('Save failed','#c00'));
+};
+document.getElementById('renderBtn').onclick=()=>{ setStatus('Rendering','#888');
+  fetch('api/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())})
+    .then(r=>r.json()).then(res=>{ if(res.ok){ const im=document.getElementById('result');
+        im.style.display='block'; im.src='out/filled.png?'+Date.now(); setStatus('Rendered ('+res.fields+' fields)'); }
+      else setStatus('Error: '+res.error,'#c00'); }).catch(()=>setStatus('Render failed','#c00')); };
+document.getElementById('result').onclick=()=>window.open(document.getElementById('result').src,'_blank');
+
+// ---- base upload / templates / xlsx batch ----
+function fileB64(file){ return new Promise(res=>{const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.readAsDataURL(file);}); }
+function bstat(m,c){ const s=document.getElementById('batchStatus'); s.textContent=m; s.style.color=c||'#555'; }
+
+document.getElementById('baseFile').onchange=async e=>{
+  const f=e.target.files[0]; if(!f)return; bstat('Uploading base');
+  const res=await (await fetch('api/upload-base',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({filename:f.name, data_b64:await fileB64(f)})})).json();
+  if(res.ok){ META.base_image=res.base_image; loadBase(); bstat('Base set (draw your boxes, then Save)'); }
+  else bstat('Upload failed: '+res.error,'#c00');
+};
+
+function refreshTemplates(){
+  fetch('api/templates').then(r=>r.json()).then(d=>{
+    const sel=document.getElementById('tplList');
+    sel.innerHTML='<option value="">saved templates</option>'+
+      (d.templates||[]).map(n=>`<option value="${n}">${n}</option>`).join('');
+  }).catch(()=>{});
+}
+document.getElementById('tplSave').onclick=()=>{
+  const name=document.getElementById('tplName').value.trim()||'untitled'; bstat('Saving');
+  fetch('api/save-template',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name, meta:META, fields})}).then(r=>r.json()).then(res=>{
+      bstat('Template saved: '+res.name+''); refreshTemplates(); }).catch(()=>bstat('Save failed','#c00'));
+};
+document.getElementById('tplList').onchange=e=>{
+  const n=e.target.value; if(!n)return; bstat('Loading '+n+'');
+  fetch('api/load-template?name='+encodeURIComponent(n)).then(r=>r.json()).then(t=>{
+    if(t.ok){ applyTemplate(t); document.getElementById('tplName').value=n; bstat('Loaded '+n+''); }
+    else bstat('Load failed','#c00'); });
+};
+document.getElementById('xlsxDl').onclick=async()=>{
+  bstat('Building sheet');
+  const res=await (await fetch('api/xlsx-template',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({fields})})).json();
+  if(!res.ok){ bstat('Failed','#c00'); return; }
+  const bin=atob(res.xlsx_b64), arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+  const url=URL.createObjectURL(new Blob([arr],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  const a=document.createElement('a'); a.href=url; a.download=(document.getElementById('tplName').value.trim()||'template')+'_fill.xlsx';
+  a.click(); URL.revokeObjectURL(url); bstat('Sheet downloaded - fill rows, then Generate.');
+};
+document.getElementById('genBtn').onclick=async()=>{
+  const f=document.getElementById('xlsxFile').files[0];
+  if(!f){ bstat('Pick a filled .xlsx first','#c00'); return; }
+  bstat('Generating','#888');
+  const res=await (await fetch('api/generate',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:document.getElementById('tplName').value.trim()||'template', meta:META, fields, xlsx_b64:await fileB64(f)})})).json();
+  if(res.ok) bstat(''+res.count+' images to '+res.folder+' ('+res.files.slice(0,3).join(', ')+(res.files.length>3?'':'')+')','#2bb673');
+  else bstat('Generate error: '+res.error,'#c00');
+};
+</script>
+</body>
+</html>

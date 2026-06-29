@@ -1,0 +1,6 @@
+Pillow
+arabic-reshaper
+python-bidi
+fonttools
+openpyxl
+pywebview

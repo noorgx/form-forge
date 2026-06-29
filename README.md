@@ -5,6 +5,8 @@ where text or marks should go, save it as a reusable template, then generate
 filled copies one at a time or in bulk from an Excel sheet. Arabic (right to
 left, properly shaped) and English work in the same box.
 
+![FormForge demo](assets/demo.gif)
+
 ## Features
 
 - Visual editor: draw field boxes directly on your form image.
@@ -25,19 +27,20 @@ left, properly shaped) and English work in the same box.
 
 - Python 3.10 or newer
 - `pip install -r requirements.txt`
-- At least one font file in `fonts/` (any .ttf or .otf). For Arabic, Playpen
-  Sans Arabic (SIL Open Font License, free on Google Fonts) works well; drop the
-  file into `fonts/` and it shows up in the per box font dropdown.
+- At least one font file in `workspace/fonts/` (any .ttf or .otf). For Arabic,
+  Playpen Sans Arabic (SIL Open Font License, free on Google Fonts) works well;
+  drop the file into `workspace/fonts/` and it shows up in the per box font
+  dropdown. The `workspace/` folder is created automatically on first run.
 
 ## Run
 
 Desktop window:
 
-    python app.py
+    python run.py
 
 Or in a browser:
 
-    python template_tool.py
+    python -m formforge.server
     # then open http://localhost:8000
 
 ## Using it
@@ -58,12 +61,12 @@ Or in a browser:
    column holds the selected option key.
 2. Fill one row per form.
 3. Pick the file and click Generate from XLSX.
-4. Images land in `output/<template>/`, each named by a field whose name
-   contains "serial" if present, otherwise by row number.
+4. Images land in `workspace/output/<template>/`, each named by a field whose
+   name contains "serial" if present, otherwise by row number.
 
 ## Template format
 
-Templates are JSON. See `fields.example.json`. A field looks like:
+Templates are JSON. See `examples/fields.example.json`. A field looks like:
 
     {
       "name": "full_name",
@@ -77,14 +80,22 @@ Templates are JSON. See `fields.example.json`. A field looks like:
 `type` is one of `text`, `date`, `choice`, `digits`. `font` and `color` are
 optional and fall back to the global defaults.
 
+## Project layout
+
+    formforge/        the package (app, server, renderer, batch) and web/ UI
+    scripts/          build_exe.py (package as .exe), make_demo.py (build the gif)
+    examples/         a sample template
+    assets/           images used by this readme
+    workspace/        your data: form images, fonts, templates, output (git ignored)
+
 ## Build a Windows executable
 
     pip install pyinstaller
-    python build_exe.py
+    python scripts/build_exe.py
 
-This produces `dist/FormTemplateEditor.exe`, a single double click file.
-Working files (templates, output, your fonts) are created next to the exe on
-first run, so keep it in its own folder.
+This produces `dist/FormForge.exe`, a single double click file. A `workspace`
+folder for your data is created next to the .exe on first run, so keep the .exe
+in its own folder.
 
 ## How Arabic rendering works
 

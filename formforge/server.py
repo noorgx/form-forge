@@ -1,14 +1,13 @@
 """
-Local server for the browser-based form template editor.
+Local web server behind the editor and the desktop app.
 
-  python template_tool.py        # then open http://localhost:8000
+Serves the UI (formforge/web/index.html), the base image, fonts and rendered
+output, and a small JSON API to load/save fields and run renders.
 
-Serves index.html, the base image, and the rendered output, and exposes a tiny
-API the editor uses to load/save the fields and trigger a render.
-
-SINGLE SOURCE OF TRUTH = fields.json. The editor loads it, Save/Render write it
-back (flat shape, exactly what `python form_filler.py` reads). No separate
-template file - editing fields.json by hand and via the editor stay in sync.
+The UI is a read-only package resource; all writable data (fields.json,
+templates, bases, output) lives under the workspace folder. fields.json is the
+single source of truth: the editor loads it and Save/Render write it back in the
+flat shape the renderer reads.
 """
 import base64
 import hashlib
@@ -18,17 +17,19 @@ import os
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import form_filler
-import batch
+from . import renderer as form_filler
+from . import batch
 
-ROOT = os.environ.get("APP_ROOT") or os.path.dirname(os.path.abspath(__file__))
-FIELDS = os.path.join(ROOT, "fields.json")   # working template (single source)
+PKG = os.path.dirname(os.path.abspath(__file__))     # formforge package
+WEB = os.path.join(PKG, "web")                        # bundled UI (read-only)
+ROOT = os.environ.get("APP_ROOT") or os.path.join(os.path.dirname(PKG), "workspace")
+FIELDS = os.path.join(ROOT, "fields.json")            # working template (single source)
 TEMPLATES_DIR = os.path.join(ROOT, "templates")
 BASES_DIR = os.path.join(ROOT, "bases")
 OUTPUT_DIR = os.path.join(ROOT, "output")
 PORT = 8000
 
-for _d in (TEMPLATES_DIR, BASES_DIR, OUTPUT_DIR):
+for _d in (ROOT, TEMPLATES_DIR, BASES_DIR, OUTPUT_DIR, os.path.join(ROOT, "fonts")):
     os.makedirs(_d, exist_ok=True)
 
 
@@ -98,7 +99,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path in ("/", "/index.html"):
-            return self._file("index.html", "text/html; charset=utf-8", nocache=True)
+            p = os.path.join(WEB, "index.html")
+            if not os.path.exists(p):
+                return self._send(404, b"not found", "text/plain")
+            with open(p, "rb") as f:
+                return self._send(200, f.read(), "text/html; charset=utf-8", nocache=True)
         if path == "/base.jpeg":
             return self._file("base.jpeg", "image/jpeg")
         if path.startswith("/out/") or path.startswith("/bases/") or path.startswith("/output/"):
@@ -210,6 +215,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     os.chdir(ROOT)
-    print(f"Form Template Editor running at  http://localhost:{PORT}")
+    print(f"Form Forge running at  http://localhost:{PORT}")
     print("Press Ctrl+C to stop.")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

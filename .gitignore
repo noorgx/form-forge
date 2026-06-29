@@ -2,30 +2,17 @@
 __pycache__/
 *.pyc
 
-# Build artifacts
+# Build output
 build/
 dist/
 *.spec
-
-# Packaged app
 *.exe
 
-# Your data (not part of the tool)
-base.jpeg
-ex1.jpeg
-fields.json
-bases/
-templates/
-output/
-out/
-
-# Fonts: add your own (licensing varies)
-fonts/*
-!fonts/.gitkeep
+# All runtime and user data (form images, templates, fonts, generated output)
+workspace/
 
 # Local tooling / secrets (never publish)
 .adrflow/
 .codegraphcontext/
 .env
 *.env
-

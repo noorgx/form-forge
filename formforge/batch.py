@@ -14,7 +14,7 @@ import os
 import re
 import openpyxl
 
-import form_filler
+from . import renderer as form_filler
 
 DATE_PARTS = ("day", "month", "year")
 
